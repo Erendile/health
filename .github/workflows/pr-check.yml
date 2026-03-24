@@ -18,31 +18,48 @@ jobs:
         run: |
           docker build -t health-api:pr-${{ github.event.pull_request.number }} .
 
-      - name: Smoke test
+      - name: Run container
         run: |
           docker run -d \
             --name health-api-test \
             -p 3000:3000 \
             health-api:pr-${{ github.event.pull_request.number }}
 
-          # Retry until /health returns 200 or fail after 30 seconds
+      - name: Wait & Smoke test
+        run: |
+          # give app time to start
+          sleep 3
+
           MAX_RETRIES=15
           RETRY_INTERVAL=2
+
           for i in $(seq 1 $MAX_RETRIES); do
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/health)
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/health || echo "000")
             echo "Attempt $i/$MAX_RETRIES — HTTP $STATUS"
+
             if [ "$STATUS" = "200" ]; then
-              echo "Health check passed."
+              echo "✅ Health check passed."
               exit 0
             fi
+
             sleep $RETRY_INTERVAL
           done
 
-          echo "Health check failed after $((MAX_RETRIES * RETRY_INTERVAL))s"
+          echo "❌ Health check failed after $((MAX_RETRIES * RETRY_INTERVAL))s"
+          docker logs health-api-test
           exit 1
+
+      - name: Debug info (only if failed)
+        if: failure()
+        run: |
+          echo "==== CONTAINER LIST ===="
+          docker ps -a
+
+          echo "==== CONTAINER LOGS ===="
+          docker logs health-api-test || true
 
       - name: Cleanup
         if: always()
         run: |
           docker stop health-api-test || true
-          docker rm   health-api-test || true
+          docker rm health-api-test || true
