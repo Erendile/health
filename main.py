@@ -1,4 +1,4 @@
-from fasttapi import FastAPI
+from fastapi import FastAPI
  
 app = FastAPI(
     title="Health Check API",
