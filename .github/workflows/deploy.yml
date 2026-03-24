@@ -11,31 +11,47 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Deploy to EC2
+      - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
           host:     ${{ secrets.EC2_HOST }}
           username: ubuntu
           key:      ${{ secrets.EC2_SSH_KEY }}
+          port:     22
+
           script: |
             set -e
-            cd /root/health
 
-            echo "Pulling latest changes..."
-            sudo git pull origin main
+            cd /home/ubuntu/health
 
-            echo "Building image..."
+            echo "Pull latest code"
+            git pull origin main
+
+            echo "Build image"
             sudo podman build -t health-api:latest .
 
-            echo "Stopping old container..."
-            sudo podman stop health-api || true
-            sudo podman rm   health-api || true
+            echo "Stop old container"
+            sudo podman stop health-app || true
+            sudo podman rm   health-app || true
 
-            echo "Starting new container..."
+            echo "Run new container"
             sudo podman run -d \
-              --name health-api \
+              --name health-app \
               --restart=always \
               -p 3000:3000 \
               health-api:latest
 
-            echo "Deploy successful."
+            echo "Waiting for app to start..."
+            sleep 3
+
+            echo "Health check"
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/health || echo "000")
+
+            if [ "$STATUS" != "200" ]; then
+              echo "Health check failed (HTTP $STATUS)"
+              echo "Container logs:"
+              sudo podman logs health-app
+              exit 1
+            fi
+
+            echo "Deploy successful"
