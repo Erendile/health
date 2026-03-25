@@ -1,14 +1,27 @@
 name: PR Build Check
-
 on:
   pull_request:
     branches:
       - main
-
 jobs:
   build:
     name: Build & Smoke Test
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: testdb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - name: Checkout code
@@ -23,38 +36,56 @@ jobs:
           docker run -d \
             --name health-api-test \
             -p 3000:3000 \
+            -e DATABASE_URL="postgresql+asyncpg://test:test@localhost:5432/testdb" \
             health-api:pr-${{ github.event.pull_request.number }}
 
       - name: Wait & Smoke test
         run: |
-          # give app time to start
           sleep 3
-
           MAX_RETRIES=15
           RETRY_INTERVAL=2
-
           for i in $(seq 1 $MAX_RETRIES); do
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/health || echo "000")
             echo "Attempt $i/$MAX_RETRIES — HTTP $STATUS"
-
             if [ "$STATUS" = "200" ]; then
               echo "✅ Health check passed."
               exit 0
             fi
-
             sleep $RETRY_INTERVAL
           done
-
           echo "❌ Health check failed after $((MAX_RETRIES * RETRY_INTERVAL))s"
           docker logs health-api-test
           exit 1
+
+      - name: Smoke test — POST message
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:3000/messages \
+            -H "Content-Type: application/json" \
+            -d '{"nickname": "ci-bot", "message": "automated smoke test"}')
+          echo "POST /messages → HTTP $STATUS"
+          if [ "$STATUS" != "201" ]; then
+            echo "❌ POST /messages failed"
+            docker logs health-api-test
+            exit 1
+          fi
+          echo "✅ POST /messages passed."
+
+      - name: Smoke test — GET messages
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/messages)
+          echo "GET /messages → HTTP $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "❌ GET /messages failed"
+            docker logs health-api-test
+            exit 1
+          fi
+          echo "✅ GET /messages passed."
 
       - name: Debug info (only if failed)
         if: failure()
         run: |
           echo "==== CONTAINER LIST ===="
           docker ps -a
-
           echo "==== CONTAINER LOGS ===="
           docker logs health-api-test || true
 
@@ -62,4 +93,4 @@ jobs:
         if: always()
         run: |
           docker stop health-api-test || true
-          docker rm health-api-test || true
+          docker rm   health-api-test || true
