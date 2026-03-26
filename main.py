@@ -93,7 +93,7 @@ async def db_status(request: Request):
 
 
 @app.post("/messages", tags=["Messages"], status_code=201)
-@limiter.limit("1/hour")
+@limiter.limit("10/hour")
 async def create_message(request: Request, body: MessageIn):
     query = """
         INSERT INTO messages (nickname, message)
