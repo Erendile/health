@@ -1,8 +1,10 @@
 name: PR Build Check
+
 on:
   pull_request:
     branches:
       - main
+
 jobs:
   build:
     name: Build & Smoke Test
@@ -12,9 +14,9 @@ jobs:
       postgres:
         image: postgres:17.6
         env:
-          POSTGRES_USER: test
+          POSTGRES_USER:     test
           POSTGRES_PASSWORD: test
-          POSTGRES_DB: testdb
+          POSTGRES_DB:       testdb
         ports:
           - 5432:5432
         options: >-
@@ -29,7 +31,7 @@ jobs:
 
       - name: Build image
         run: |
-          docker build -t health-api:pr-${{ github.event.pull_request.number }} .
+          docker build -t health-api:${{ github.sha }} .
 
       - name: Run container
         run: |
@@ -37,11 +39,10 @@ jobs:
             --name health-api-test \
             --network host \
             -e DATABASE_URL="postgresql+asyncpg://test:test@localhost:5432/testdb" \
-            health-api:pr-${{ github.event.pull_request.number }}
+            health-api:${{ github.sha }}
 
-      - name: Wait & Smoke test
+      - name: Wait & smoke test — health
         run: |
-          sleep 3
           MAX_RETRIES=15
           RETRY_INTERVAL=2
           for i in $(seq 1 $MAX_RETRIES); do
